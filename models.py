@@ -1,9 +1,8 @@
+import json
 import random
 
-import aiogram
 from peewee import *
-
-from utilities.fields import MultiField
+from playhouse.fields import PickleField
 
 db = SqliteDatabase("app1.db")
 
@@ -13,13 +12,19 @@ class BaseModel(Model):
         database = db
 
 
+class Category(BaseModel):
+    id = PrimaryKeyField(column_name="id")
+    name = CharField(column_name="name", max_length=64)
+
+
 class Question(BaseModel):
     id = PrimaryKeyField(column_name="id")
-    value = CharField(column_name="value", max_length=64)
-    type = CharField(column_name="type")
-    correct_answer = CharField(column_name="correct_answer")
-    wrong_answers = MultiField(column_name="wrong_answers", null=True)
+    value = CharField(column_name="value", max_length=256)
+    type = CharField(column_name="type", max_length=8)
+    correct_answer = CharField(column_name="correct_answer", max_length=64)
+    wrong_answers: list = PickleField(column_name="wrong_answers", null=True)
     answers_amount = IntegerField(column_name="answers_amount", null=True)
+    category_id = ForeignKeyField(Category, backref="questions")
 
     def generate_question_text(self):
         return self.value
@@ -28,14 +33,8 @@ class Question(BaseModel):
         if self.type == "choose":
             answers = [self.correct_answer] + random.sample(self.wrong_answers, self.answers_amount - 1)
             random.shuffle(answers)
-            markup = aiogram.types.inline_keyboard.InlineKeyboardMarkup()
-            buttons = list()
-            for answer in answers:
-                buttons.append(
-                    aiogram.types.inline_keyboard.InlineKeyboardButton(text=answer,
-                                                                       callback_data=f"{self.id}_{answer}"))
-            markup.add(*buttons)
-            return markup
+            buttons = [{"text": answer, "callback_data": f"answer_{answer}"} for answer in answers]
+            return json.dumps({'inline_keyboard': [[*buttons]]})
         return None
 
     def generate_answer_true(self):
@@ -51,11 +50,34 @@ class Question(BaseModel):
 
 class User(BaseModel):
     id = PrimaryKeyField(column_name="id")
-    telegram_user_id = CharField(column_name="telegram_user_id", max_length=64)
-    username = CharField(column_name="username", max_length=64, null=True)
-    first_name = CharField(column_name="first_name", max_length=64, null=True)
-    last_name = CharField(column_name="last_name", max_length=64, null=True)
     chat_id = CharField(column_name="chat_id", max_length=64)
+
+    def get_possible_questions(self):
+        possible_questions = []
+        for category in self.categories:
+            for question in category.questions:
+                possible_questions.append(question)
+        return possible_questions
+
+    def get_subscribed_categories(self):
+        return self.categories
+
+    def gen_user_categories_markup(self):
+        buttons = []
+        not_subscribed_categories = [cat for cat in Category.query.all() if cat not in self.categories]
+        for category in self.categories:
+            buttons.append({"text": f"{category.name}✓", "callback_data": f"categorysubscription_{category.id}"})
+        for category in not_subscribed_categories:
+            buttons.append({"text": f"{category.name}", "callback_data": f"categorysubscription_{category.id}"})
+        return json.dumps({"inline_keyboard": [[*buttons]]})
+
+    def category_switch(self, category):
+        if category in self.categories:
+            self.categories.remove(category)
+            return False
+        else:
+            self.categories.append(category)
+            return True
 
 
 class Stat(BaseModel):
