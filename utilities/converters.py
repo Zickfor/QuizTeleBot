@@ -1,10 +1,14 @@
-from peewee import fn
+import random
 
-from models import User, Question, Stat, Attempt
+from models import User, Question, Stat, Attempt, Category
 
 
-def get_random_question():
-    return Question.select().order_by(fn.Random()).get()
+def get_random_question(user):
+    possible_questions = user.get_possible_questions()
+    if len(possible_questions) == 0:
+        return None
+    else:
+        return random.choice(user.get_possible_questions())
 
 
 def get_chat_id_from_chat(chat):
@@ -143,3 +147,13 @@ def generate_statistics_from_stats(stats):
             "percents_no_answer": total_no_answer / total_questions,
             "median_answer_time": calculate_median_answer_time(stats)}
 
+
+def get_category(id):
+    return Category.get_by_id(id)
+
+
+def create_user_if_not_exist(chat_id):
+    try:
+        return create_user(chat_id=chat_id)
+    except User.DoesNotExist:
+        return None

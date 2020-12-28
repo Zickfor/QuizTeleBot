@@ -6,7 +6,9 @@ import time
 from aiogram import Bot, Dispatcher, executor, types
 
 from utilities.converters import get_user_from_message, get_attempt_from_callback, get_attempt_from_message, \
-    get_random_question, create_user, create_stat, create_attempt, generate_statistics_from_stats
+    get_random_question, create_stat, create_attempt, generate_statistics_from_stats, \
+    get_user_from_callback, get_category
+from utilities.middleware import DatabaseCheckExistance
 
 config = configparser.ConfigParser()
 config.read("config.ini")
@@ -20,23 +22,26 @@ logging.basicConfig(level=logging.INFO)
 
 @dp.message_handler(commands=["start"])
 async def next_handler(message):
-    user = get_user_from_message(message)
-    if user is None:
-        user = create_user(chat_id=message.chat.id)
     await message.reply("Напишите /next для получения задания")
 
 
 @dp.message_handler(commands=["next"])
 async def next_handler(message):
-    question = get_random_question()
     user = get_user_from_message(message)
-    msg = await message.reply(text=question.generate_question_text(), reply_markup=question.generate_question_markup())
-    stat = create_stat(user=user, asking_time=msg.date)
-    create_attempt(
-        question_id=question.id,
-        message_id=msg.message_id,
-        user=user,
-        stat=stat)
+    question = get_random_question(user)
+    if question is not None:
+        msg = await message.reply(text=question.generate_question_text(), reply_markup=question.generate_question_markup())
+        stat = create_stat(user_id=user.id, asking_time=msg.date)
+        create_attempt(question_id=question.id, message_id=msg.message_id, user_id=user.id, stat=stat)
+    else:
+        await message.reply(text="Похоже, что вы не подписаны ни на одну категорию\n\nОтправьте /categories, чтобы подписаться")
+
+
+@dp.message_handler(commands=["categories"])
+async def next_handler(message):
+    user = get_user_from_message(message)
+    await message.reply(text="Нажмите ниже на категорию, чтобы переключить её состояние",
+                        reply_markup=user.gen_user_categories_markup())
 
 
 @dp.message_handler(commands=["stats"])
@@ -74,26 +79,33 @@ async def handle_messages(message):
 
 
 @dp.callback_query_handler(
-    lambda call: (int(call.message.date.timestamp()) > 1602229656) and (call.data.split('_')[0] == "answer"))
+    lambda call: (int(call.message.date.timestamp()) > 1608674862) and (get_attempt_from_callback(call) is not None))
 async def callback(call):
     attempt = get_attempt_from_callback(call)
     choosed_answer = call.data.split('_')[1]
     if choosed_answer == attempt.question.correct_answer:
         await call.message.edit_text(text=attempt.question.generate_answer_true(), reply_markup=None)
-        await bot.answer_callback_query(callback_query_id=call.id, text=attempt.question.generate_answer_true())
+        await call.answer(text=attempt.question.generate_answer_true())
         attempt.stat.correct = True
     else:
         await call.message.edit_text(text=attempt.question.generate_answer_false(), reply_markup=None)
-        await bot.answer_callback_query(callback_query_id=call.id, text=attempt.question.generate_answer_false())
+        await call.answer(text=attempt.question.generate_answer_false())
         attempt.stat.correct = False
     attempt.stat.answer_time = datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')
     attempt.stat.save()
 
 
+@dp.callback_query_handler(lambda call: call.data.split('_')[0] == "categorysubscription")
+async def default(call):
+    user = get_user_from_callback(call)
+    user.category_switch(get_category(call.data.split('_')[1]))
+    await call.answer(text="Переключено")
+    await call.message.edit_reply_markup(reply_markup=user.gen_user_categories_markup())
+
+
 @dp.callback_query_handler()
 async def default(call):
-    await bot.answer_callback_query(callback_query_id=call.id,
-                                    text="К сожалению данный тип вопросов больше не поддерживается", show_alert=True)
+    await call.answer(text="К сожалению данное действие больше не поддерживается", show_alert=True)
     await bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id,
                                         reply_markup=types.inline_keyboard.InlineKeyboardMarkup())
 
@@ -104,4 +116,5 @@ async def default_message(message):
 
 
 if __name__ == "__main__":
+    dp.middleware.setup(DatabaseCheckExistance())
     executor.start_polling(dp)

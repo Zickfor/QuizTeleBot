@@ -1,6 +1,7 @@
 import json
 import random
 
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from peewee import *
 from playhouse.fields import PickleField
 
@@ -53,30 +54,32 @@ class User(BaseModel):
     chat_id = CharField(column_name="chat_id", max_length=64)
 
     def get_possible_questions(self):
-        possible_questions = []
-        for category in self.categories:
+        questions = []
+        for category in self.get_subscribed_categories():
             for question in category.questions:
-                possible_questions.append(question)
-        return possible_questions
+                questions.append(question)
+        return questions
 
     def get_subscribed_categories(self):
-        return self.categories
+        return list(Category.select().join(UserCategory).join(User).where(User.id == self.id))
 
     def gen_user_categories_markup(self):
+        markup = InlineKeyboardMarkup(resize_keyboard=True)
         buttons = []
-        not_subscribed_categories = [cat for cat in Category.query.all() if cat not in self.categories]
-        for category in self.categories:
-            buttons.append({"text": f"{category.name}✓", "callback_data": f"categorysubscription_{category.id}"})
+        not_subscribed_categories = [cat for cat in Category.select() if cat not in self.get_subscribed_categories()]
+        for category in self.get_subscribed_categories():
+            buttons.append(InlineKeyboardButton(text=f"✓{category.name}", callback_data=f"categorysubscription_{category.id}"))
         for category in not_subscribed_categories:
-            buttons.append({"text": f"{category.name}", "callback_data": f"categorysubscription_{category.id}"})
-        return json.dumps({"inline_keyboard": [[*buttons]]})
+            buttons.append(InlineKeyboardButton(text=f"{category.name}", callback_data=f"categorysubscription_{category.id}"))
+        markup.add(*buttons)
+        return markup
 
     def category_switch(self, category):
-        if category in self.categories:
-            self.categories.remove(category)
+        if category in self.get_subscribed_categories():
+            UserCategory.select().where(UserCategory.user == self, UserCategory.category == category).get().delete_instance()
             return False
         else:
-            self.categories.append(category)
+            UserCategory.create(user=self, category=category)
             return True
 
 
@@ -94,6 +97,11 @@ class Attempt(BaseModel):
     message_id = CharField(column_name="message_id", max_length=64)
     user = ForeignKeyField(User, backref="attempts")
     stat = ForeignKeyField(Stat, related_name="stat")
+
+
+class UserCategory(BaseModel):
+    user = ForeignKeyField(User)
+    category = ForeignKeyField(Category)
 
 
 for subclass in BaseModel.__subclasses__():
