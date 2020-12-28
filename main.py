@@ -17,7 +17,8 @@ token = config["bot"]["token"]
 
 bot = Bot(token)
 dp = Dispatcher(bot)
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(format='%(asctime)s %(levelname)-8s %(message)s', level=logging.DEBUG, datefmt='%Y-%m-%d %H:%M:%S',
+                    filename="log", filemode='a')
 
 
 @dp.message_handler(commands=["start"])
@@ -30,11 +31,13 @@ async def next_handler(message):
     user = get_user_from_message(message)
     question = get_random_question(user)
     if question is not None:
-        msg = await message.reply(text=question.generate_question_text(), reply_markup=question.generate_question_markup())
+        msg = await message.reply(text=question.generate_question_text(),
+                                  reply_markup=question.generate_question_markup())
         stat = create_stat(user_id=user.id, asking_time=msg.date)
         create_attempt(question_id=question.id, message_id=msg.message_id, user_id=user.id, stat=stat)
     else:
-        await message.reply(text="Похоже, что вы не подписаны ни на одну категорию\n\nОтправьте /categories, чтобы подписаться")
+        await message.reply(
+            text="Похоже, что вы не подписаны ни на одну категорию\n\nОтправьте /categories, чтобы подписаться")
 
 
 @dp.message_handler(commands=["categories"])
