@@ -117,6 +117,12 @@ def calculate_median_answer_time(stats):
     if total_answered_questions == 0:
         return None
     median_answer_time = total_answer_time / total_answered_questions
+    for stat in stats:
+        answer_time = stat.answer_time - stat.asking_time
+        if median_answer_time*10 <= answer_time:
+            total_answer_time -= answer_time.seconds
+            total_answered_questions -= 1
+    median_answer_time = total_answer_time / total_answered_questions
     return median_answer_time
 
 
