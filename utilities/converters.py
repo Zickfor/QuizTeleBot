@@ -160,6 +160,6 @@ def get_category(id):
 
 def create_user_if_not_exist(chat_id):
     try:
-        return create_user(chat_id=chat_id)
+        return User.select().where(User.chat_id == chat_id).get()
     except User.DoesNotExist:
-        return None
+        return create_user(chat_id=chat_id)
